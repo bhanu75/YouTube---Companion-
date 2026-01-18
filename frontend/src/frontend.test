@@ -1,0 +1,565 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Play, MessageSquare, Edit3, Save, Trash2, Plus, Eye, Calendar, User,
+  FileText, Activity, Database, Search, Tag, Sparkles, Reply, X
+} from 'lucide-react';
+
+const API_BASE_URL = 'http://localhost:5000/api';
+
+const YouTubeDashboard = () => {
+  const [video, setVideo] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingVideo, setEditingVideo] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [newNote, setNewNote] = useState('');
+  const [noteTags, setNoteTags] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTag, setSearchTag] = useState('');
+  const [editedTitle, setEditedTitle] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [loadingAI, setLoadingAI] = useState(false);
+
+  const videoId = "YOUR_VIDEO_ID_HERE";
+
+  useEffect(() => {
+    loadVideoData();
+  }, []);
+
+  const loadVideoData = async () => {
+    try {
+      setLoading(true);
+      const [videoData, commentsData, notesData] = await Promise.all([
+        fetch(`${API_BASE_URL}/videos/${videoId}`).then(r => r.json()),
+        fetch(`${API_BASE_URL}/comments/${videoId}`).then(r => r.json()),
+        fetch(`${API_BASE_URL}/notes/${videoId}`).then(r => r.json())
+      ]);
+      
+      setVideo(videoData);
+      setComments(commentsData);
+      setNotes(notesData);
+      setEditedTitle(videoData.title);
+      setEditedDescription(videoData.description);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateVideo = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/videos/${videoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editedTitle, description: editedDescription })
+      });
+      
+      if (response.ok) {
+        setVideo(prev => ({ ...prev, title: editedTitle, description: editedDescription }));
+        setEditingVideo(false);
+        setAiSuggestions([]);
+      }
+    } catch (error) {
+      console.error('Error updating video:', error);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!newComment.trim()) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/comments/${videoId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newComment })
+      });
+      
+      if (response.ok) {
+        const comment = await response.json();
+        setComments(prev => [comment, ...prev]);
+        setNewComment('');
+      }
+    } catch (error) {
+      console.error('Error adding comment:', error);
+    }
+  };
+
+  const handleReplyToComment = async (commentId) => {
+    if (!replyText.trim()) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/comments/${commentId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: replyText, videoId })
+      });
+      
+      if (response.ok) {
+        const reply = await response.json();
+        setComments(prev => prev.map(c => 
+          c.id === commentId 
+            ? { ...c, replies: [...(c.replies || []), reply] }
+            : c
+        ));
+        setReplyingTo(null);
+        setReplyText('');
+      }
+    } catch (error) {
+      console.error('Error replying to comment:', error);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/comments/${commentId}?videoId=${videoId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        setComments(prev => prev.filter(c => c.id !== commentId));
+      }
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!newNote.trim()) return;
+    
+    const tags = noteTags.split(',').map(t => t.trim()).filter(Boolean);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/notes/${videoId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newNote, tags })
+      });
+      
+      if (response.ok) {
+        const note = await response.json();
+        setNotes(prev => [note, ...prev]);
+        setNewNote('');
+        setNoteTags('');
+      }
+    } catch (error) {
+      console.error('Error adding note:', error);
+    }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/notes/${noteId}?videoId=${videoId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        setNotes(prev => prev.filter(n => n.id !== noteId));
+      }
+    } catch (error) {
+      console.error('Error deleting note:', error);
+    }
+  };
+
+  const handleSearchNotes = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('q', searchQuery);
+      if (searchTag) params.append('tag', searchTag);
+      
+      const response = await fetch(`${API_BASE_URL}/notes/${videoId}/search?${params}`);
+      if (response.ok) {
+        const results = await response.json();
+        setNotes(results);
+      }
+    } catch (error) {
+      console.error('Error searching notes:', error);
+    }
+  };
+
+  const handleGetAISuggestions = async () => {
+    setLoadingAI(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/suggest-titles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          title: editedTitle, 
+          description: editedDescription,
+          videoId 
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAiSuggestions(data.suggestions);
+      }
+    } catch (error) {
+      console.error('Error getting AI suggestions:', error);
+    } finally {
+      setLoadingAI(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your YouTube dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center space-x-3">
+            <Play className="h-8 w-8 text-red-600" />
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">YouTube Companion</h1>
+              <p className="text-sm text-gray-600">Manage your videos with ease</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex space-x-1 mb-8 bg-white rounded-lg p-1 shadow-sm">
+          {[
+            { id: 'overview', label: 'Overview', icon: Eye },
+            { id: 'comments', label: 'Comments', icon: MessageSquare },
+            { id: 'notes', label: 'Notes', icon: FileText }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-colors ${
+                activeTab === tab.id ? 'bg-red-100 text-red-700' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <tab.icon className="h-4 w-4" />
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'overview' && video && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">Video Details</h2>
+                  <button
+                    onClick={() => setEditingVideo(!editingVideo)}
+                    className="flex items-center space-x-2 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                    <span>{editingVideo ? 'Cancel' : 'Edit'}</span>
+                  </button>
+                </div>
+                
+                <div className="aspect-video bg-gray-100 rounded-lg mb-4">
+                  <img src={video.thumbnailUrl} alt={video.title} className="w-full h-full object-cover rounded-lg" />
+                </div>
+
+                {editingVideo ? (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700">Title</label>
+                        <button
+                          onClick={handleGetAISuggestions}
+                          disabled={loadingAI}
+                          className="flex items-center space-x-1 px-3 py-1 text-xs bg-purple-50 text-purple-700 rounded-md hover:bg-purple-100 disabled:opacity-50"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          <span>{loadingAI ? 'Loading...' : 'AI Suggestions'}</span>
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={editedTitle}
+                        onChange={(e) => setEditedTitle(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      {aiSuggestions.length > 0 && (
+                        <div className="mt-3 p-3 bg-purple-50 rounded-md">
+                          <p className="text-sm font-medium text-gray-700 mb-2">AI Title Suggestions:</p>
+                          {aiSuggestions.map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setEditedTitle(suggestion)}
+                              className="block w-full text-left px-3 py-2 mb-1 text-sm bg-white rounded hover:bg-purple-100 transition-colors"
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                      <textarea
+                        value={editedDescription}
+                        onChange={(e) => setEditedDescription(e.target.value)}
+                        rows={4}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+                    
+                    <button
+                      onClick={handleUpdateVideo}
+                      className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                    >
+                      <Save className="h-4 w-4" />
+                      <span>Save Changes</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">{video.title}</h3>
+                    <p className="text-gray-600 mb-4">{video.description}</p>
+                    <div className="flex items-center space-x-6 text-sm text-gray-500">
+                      <span className="flex items-center space-x-1">
+                        <Calendar className="h-4 w-4" />
+                        <span>{new Date(video.publishedAt).toLocaleDateString()}</span>
+                      </span>
+                      <span>{video.duration}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Statistics</h3>
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Views</span>
+                    <span className="font-medium">{video.viewCount?.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Likes</span>
+                    <span className="font-medium">{video.likeCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Comments</span>
+                    <span className="font-medium">{video.commentCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Notes</span>
+                    <span className="font-medium">{notes.length}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'comments' && (
+          <div className="max-w-4xl">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-6">Comments</h2>
+              
+              <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Add a comment</h3>
+                <div className="flex space-x-3">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Write a comment..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <button
+                    onClick={handleAddComment}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {comments.map((comment) => (
+                  <div key={comment.id} className="border-b border-gray-200 pb-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center space-x-3">
+                        <User className="h-8 w-8 text-gray-400" />
+                        <div>
+                          <p className="font-medium text-gray-900">{comment.author}</p>
+                          <p className="text-sm text-gray-500">{new Date(comment.publishedAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        >
+                          <Reply className="h-4 w-4" />
+                        </button>
+                        {comment.author === 'YourChannel' && (
+                          <button
+                            onClick={() => handleDeleteComment(comment.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-gray-700 mb-2 ml-11">{comment.text}</p>
+                    <p className="text-sm text-gray-500 ml-11">{comment.likeCount} likes</p>
+                    
+                    {replyingTo === comment.id && (
+                      <div className="ml-11 mt-3 flex space-x-2">
+                        <input
+                          type="text"
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder="Write a reply..."
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          onClick={() => handleReplyToComment(comment.id)}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                        >
+                          Reply
+                        </button>
+                      </div>
+                    )}
+                    
+                    {comment.replies?.length > 0 && (
+                      <div className="ml-11 mt-4 space-y-3">
+                        {comment.replies.map((reply) => (
+                          <div key={reply.id} className="flex space-x-3">
+                            <User className="h-6 w-6 text-gray-400" />
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2">
+                                <p className="font-medium text-gray-900 text-sm">{reply.author}</p>
+                                <p className="text-xs text-gray-500">{new Date(reply.publishedAt).toLocaleDateString()}</p>
+                              </div>
+                              <p className="text-gray-700 text-sm">{reply.text}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'notes' && (
+          <div className="max-w-4xl">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-6">Video Improvement Notes</h2>
+              
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                <div className="flex space-x-2 mb-3">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search notes..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="text"
+                    value={searchTag}
+                    onChange={(e) => setSearchTag(e.target.value)}
+                    placeholder="Filter by tag..."
+                    className="w-40 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={handleSearchNotes}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Add a new note</h3>
+                <input
+                  type="text"
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Ideas for improving this video..."
+                  className="w-full px-3 py-2 mb-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <div className="flex space-x-3">
+                  <input
+                    type="text"
+                    value={noteTags}
+                    onChange={(e) => setNoteTags(e.target.value)}
+                    placeholder="Tags (comma-separated)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <button
+                    onClick={handleAddNote}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {notes.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No notes yet. Add your first improvement idea!</p>
+                ) : (
+                  notes.map((note) => (
+                    <div key={note.id} className="flex justify-between items-start p-4 bg-yellow-50 rounded-lg">
+                      <div className="flex-1">
+                        <p className="text-gray-800">{note.text}</p>
+                        {note.tags && note.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {note.tags.map((tag, idx) => (
+                              <span key={idx} className="inline-flex items-center px-2 py-1 bg-yellow-200 text-yellow-800 text-xs rounded">
+                                <Tag className="h-3 w-3 mr-1" />
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-sm text-gray-500 mt-1">{new Date(note.created_at).toLocaleDateString()}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="p-1 text-red-600 hover:bg-red-50 rounded ml-3"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default YouTubeDashboard;
